@@ -27,9 +27,9 @@ import kotlin.coroutines.*
 @State(Scope.Benchmark)
 open class PingPongWithBlockingContext {
 
-    @UseExperimental(InternalCoroutinesApi::class)
+    @OptIn(InternalCoroutinesApi::class)
     private val experimental = ExperimentalCoroutineDispatcher(8)
-    @UseExperimental(InternalCoroutinesApi::class)
+    @OptIn(InternalCoroutinesApi::class)
     private val blocking = experimental.blocking(8)
     private val threadPool = newFixedThreadPoolContext(8, "PongCtx")
 
