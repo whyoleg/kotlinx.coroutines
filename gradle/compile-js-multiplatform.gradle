@@ -12,12 +12,12 @@ kotlin {
         // `irTarget` is non-null in `both` mode
         // and contains appropriate `irTarget` with type `KotlinJsIrTarget`
         // `irTarget` is null in `legacy` mode
-        if (it.irTarget != null) {
+        /*if (it.irTarget != null) {
             irTarget.nodejs()
             irTarget.compilations['main']?.dependencies {
                 api "org.jetbrains.kotlinx:atomicfu-js:$atomicfu_version"
             }
-        }
+        }*/
     }
 
     sourceSets {
