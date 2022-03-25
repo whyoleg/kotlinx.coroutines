@@ -269,7 +269,7 @@ check.dependsOn moreTest
 
 task testsJar(type: Jar, dependsOn: jvmTestClasses) {
     classifier = 'tests'
-    from compileTestKotlinJvm.destinationDir
+    from(compileTestKotlinJvm.destinationDirectory)
 }
 
 artifacts {
