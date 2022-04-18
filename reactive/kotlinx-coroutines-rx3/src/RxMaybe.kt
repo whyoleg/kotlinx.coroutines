@@ -23,25 +23,26 @@ public fun <T> rxMaybe(
 ): Maybe<T> {
     require(context[Job] === null) { "Maybe context cannot contain job in it." +
             "Its lifecycle should be managed via Disposable handle. Had $context" }
-    return rxMaybeInternal(GlobalScope, context, block)
+    @Suppress("UNCHECKED_CAST")
+    return rxMaybeInternal(GlobalScope, context, block) as Maybe<T>
 }
 
-private fun <T> rxMaybeInternal(
+private fun <T: Any> rxMaybeInternal(
     scope: CoroutineScope, // support for legacy rxMaybe in scope
     context: CoroutineContext,
     block: suspend CoroutineScope.() -> T?
-): Maybe<T> = Maybe.create { subscriber ->
+): Maybe<T?> = Maybe.create<T?> { subscriber ->
     val newContext = scope.newCoroutineContext(context)
     val coroutine = RxMaybeCoroutine(newContext, subscriber)
     subscriber.setCancellable(RxCancellable(coroutine))
     coroutine.start(CoroutineStart.DEFAULT, coroutine, block)
 }
 
-private class RxMaybeCoroutine<T>(
+private class RxMaybeCoroutine<T: Any>(
     parentContext: CoroutineContext,
     private val subscriber: MaybeEmitter<T>
-) : AbstractCoroutine<T>(parentContext, false, true) {
-    override fun onCompleted(value: T) {
+) : AbstractCoroutine<T?>(parentContext, false, true) {
+    override fun onCompleted(value: T?) {
         try {
             if (value == null) subscriber.onComplete() else subscriber.onSuccess(value)
         } catch (e: Throwable) {

@@ -41,14 +41,15 @@ public suspend fun CompletableSource.await(): Unit = suspendCancellableCoroutine
  * If the [Job] of the current coroutine is cancelled or completed while this suspending function is waiting, this
  * function immediately resumes with [CancellationException] and disposes of its subscription.
  */
-@Suppress("UNCHECKED_CAST")
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> MaybeSource<T>.awaitSingleOrNull(): T? = suspendCancellableCoroutine { cont ->
-    subscribe(object : MaybeObserver<T> {
+    @Suppress("UNCHECKED_CAST")
+    subscribe(object : MaybeObserver<T & Any> {
         override fun onSubscribe(d: Disposable) { cont.disposeOnCancellation(d) }
         override fun onComplete() { cont.resume(null) }
-        override fun onSuccess(t: T) { cont.resume(t) }
+        override fun onSuccess(t: T & Any) { cont.resume(t) }
         override fun onError(error: Throwable) { cont.resumeWithException(error) }
-    })
+    } as MaybeObserver<T>)
 }
 
 /**
@@ -61,6 +62,7 @@ public suspend fun <T> MaybeSource<T>.awaitSingleOrNull(): T? = suspendCancellab
  *
  * @throws NoSuchElementException if no elements were produced by this [MaybeSource].
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> MaybeSource<T>.awaitSingle(): T = awaitSingleOrNull() ?: throw NoSuchElementException()
 
 /**
@@ -84,6 +86,7 @@ public suspend fun <T> MaybeSource<T>.awaitSingle(): T = awaitSingleOrNull() ?: 
     level = DeprecationLevel.ERROR,
     replaceWith = ReplaceWith("this.awaitSingleOrNull()")
 ) // Warning since 1.5, error in 1.6, hidden in 1.7
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> MaybeSource<T>.await(): T? = awaitSingleOrNull()
 
 /**
@@ -107,6 +110,7 @@ public suspend fun <T> MaybeSource<T>.await(): T? = awaitSingleOrNull()
     level = DeprecationLevel.ERROR,
     replaceWith = ReplaceWith("this.awaitSingleOrNull() ?: default")
 ) // Warning since 1.5, error in 1.6, hidden in 1.7
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> MaybeSource<T>.awaitOrDefault(default: T): T = awaitSingleOrNull() ?: default
 
 // ------------------------ SingleSource ------------------------
@@ -119,12 +123,14 @@ public suspend fun <T> MaybeSource<T>.awaitOrDefault(default: T): T = awaitSingl
  * If the [Job] of the current coroutine is cancelled or completed while the suspending function is waiting, this
  * function immediately disposes of its subscription and resumes with [CancellationException].
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> SingleSource<T>.await(): T = suspendCancellableCoroutine { cont ->
-    subscribe(object : SingleObserver<T> {
+    @Suppress("UNCHECKED_CAST")
+    subscribe(object : SingleObserver<T & Any> {
         override fun onSubscribe(d: Disposable) { cont.disposeOnCancellation(d) }
-        override fun onSuccess(t: T) { cont.resume(t) }
+        override fun onSuccess(t: T & Any) { cont.resume(t) }
         override fun onError(error: Throwable) { cont.resumeWithException(error) }
-    })
+    } as SingleObserver<T>)
 }
 
 // ------------------------ ObservableSource ------------------------
@@ -139,6 +145,7 @@ public suspend fun <T> SingleSource<T>.await(): T = suspendCancellableCoroutine 
  *
  * @throws NoSuchElementException if the observable does not emit any value
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> ObservableSource<T>.awaitFirst(): T = awaitOne(Mode.FIRST)
 
 /**
@@ -150,6 +157,7 @@ public suspend fun <T> ObservableSource<T>.awaitFirst(): T = awaitOne(Mode.FIRST
  * If the [Job] of the current coroutine is cancelled or completed while the suspending function is waiting, this
  * function immediately disposes of its subscription and resumes with [CancellationException].
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> ObservableSource<T>.awaitFirstOrDefault(default: T): T = awaitOne(Mode.FIRST_OR_DEFAULT, default)
 
 /**
@@ -161,6 +169,7 @@ public suspend fun <T> ObservableSource<T>.awaitFirstOrDefault(default: T): T = 
  * If the [Job] of the current coroutine is cancelled or completed while the suspending function is waiting, this
  * function immediately disposes of its subscription and resumes with [CancellationException].
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> ObservableSource<T>.awaitFirstOrNull(): T? = awaitOne(Mode.FIRST_OR_DEFAULT)
 
 /**
@@ -172,6 +181,7 @@ public suspend fun <T> ObservableSource<T>.awaitFirstOrNull(): T? = awaitOne(Mod
  * If the [Job] of the current coroutine is cancelled or completed while the suspending function is waiting, this
  * function immediately disposes of its subscription and resumes with [CancellationException].
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> ObservableSource<T>.awaitFirstOrElse(defaultValue: () -> T): T =
     awaitOne(Mode.FIRST_OR_DEFAULT) ?: defaultValue()
 
@@ -185,6 +195,7 @@ public suspend fun <T> ObservableSource<T>.awaitFirstOrElse(defaultValue: () -> 
  *
  * @throws NoSuchElementException if the observable does not emit any value
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> ObservableSource<T>.awaitLast(): T = awaitOne(Mode.LAST)
 
 /**
@@ -198,6 +209,7 @@ public suspend fun <T> ObservableSource<T>.awaitLast(): T = awaitOne(Mode.LAST)
  * @throws NoSuchElementException if the observable does not emit any value
  * @throws IllegalArgumentException if the observable emits more than one value
  */
+@Suppress("UPPER_BOUND_VIOLATED")
 public suspend fun <T> ObservableSource<T>.awaitSingle(): T = awaitOne(Mode.SINGLE)
 
 // ------------------------ private ------------------------
@@ -213,11 +225,12 @@ private enum class Mode(val s: String) {
     override fun toString(): String = s
 }
 
-private suspend fun <T> ObservableSource<T>.awaitOne(
+private suspend fun <T> ObservableSource<T & Any>.awaitOne(
     mode: Mode,
     default: T? = null
 ): T = suspendCancellableCoroutine { cont ->
-    subscribe(object : Observer<T> {
+    @Suppress("UNCHECKED_CAST")
+    subscribe(object : Observer<T & Any> {
         private lateinit var subscription: Disposable
         private var value: T? = null
         private var seenValue = false
@@ -227,7 +240,7 @@ private suspend fun <T> ObservableSource<T>.awaitOne(
             cont.invokeOnCancellation { sub.dispose() }
         }
 
-        override fun onNext(t: T) {
+        override fun onNext(t: T & Any) {
             when (mode) {
                 Mode.FIRST, Mode.FIRST_OR_DEFAULT -> {
                     if (!seenValue) {
@@ -249,7 +262,6 @@ private suspend fun <T> ObservableSource<T>.awaitOne(
             }
         }
 
-        @Suppress("UNCHECKED_CAST")
         override fun onComplete() {
             if (seenValue) {
                 if (cont.isActive) cont.resume(value as T)
@@ -268,6 +280,6 @@ private suspend fun <T> ObservableSource<T>.awaitOne(
         override fun onError(e: Throwable) {
             cont.resumeWithException(e)
         }
-    })
+    } as Observer<T & Any>)
 }
 
