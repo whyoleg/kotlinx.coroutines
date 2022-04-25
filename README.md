@@ -2,7 +2,7 @@
 
 [![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
 [![GitHub license](https://img.shields.io/badge/license-Apache%20License%202.0-blue.svg?style=flat)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Download](https://img.shields.io/maven-central/v/org.jetbrains.kotlinx/kotlinx-coroutines-core/1.6.0)](https://search.maven.org/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core/1.6.0/pom)
+[![Download](https://img.shields.io/maven-central/v/org.jetbrains.kotlinx/kotlinx-coroutines-core/1.6.0-RC2)](https://search.maven.org/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core/1.6.0-RC2/pom)
 [![Kotlin](https://img.shields.io/badge/kotlin-1.6.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Slack channel](https://img.shields.io/badge/chat-slack-green.svg?logo=slack)](https://kotlinlang.slack.com/messages/coroutines/)
 
@@ -83,7 +83,7 @@ Add dependencies (you can also add other modules that you need):
 <dependency>
     <groupId>org.jetbrains.kotlinx</groupId>
     <artifactId>kotlinx-coroutines-core</artifactId>
-    <version>1.6.0</version>
+    <version>1.6.0-RC2</version>
 </dependency>
 ```
 
@@ -99,39 +99,55 @@ And make sure that you use the latest Kotlin version:
 
 Add dependencies (you can also add other modules that you need):
 
-```kotlin
+```groovy
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0-RC2'
 }
 ```
 
 And make sure that you use the latest Kotlin version:
 
-```kotlin
-plugins {
-    // For build.gradle.kts (Kotlin DSL)
-    kotlin("jvm") version "1.6.0"
-    
-    // For build.gradle (Groovy DSL)
-    id "org.jetbrains.kotlin.jvm" version "1.6.0"
+```groovy
+buildscript {
+    ext.kotlin_version = '1.6.0'
 }
 ```
 
 Make sure that you have `mavenCentral()` in the list of repositories:
 
-```kotlin
-repositories {
+```
+repository {
     mavenCentral()
 }
 ```
+
+### Gradle Kotlin DSL
+
+Add dependencies (you can also add other modules that you need):
+
+```groovy
+dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0-RC2")
+}
+```
+
+And make sure that you use the latest Kotlin version:
+
+```groovy
+plugins {
+    kotlin("jvm") version "1.5.30"
+}
+```
+
+Make sure that you have `mavenCentral()` in the list of repositories.
 
 ### Android
 
 Add [`kotlinx-coroutines-android`](ui/kotlinx-coroutines-android)
 module as a dependency when using `kotlinx.coroutines` on Android:
 
-```kotlin
-implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.0")
+```groovy
+implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.0-RC2'
 ```
 
 This gives you access to the Android [Dispatchers.Main]
@@ -149,8 +165,7 @@ For more details see ["Optimization" section for Android](ui/kotlinx-coroutines-
 The `kotlinx-coroutines-core` artifact contains a resource file that is not required for the coroutines to operate
 normally and is only used by the debugger. To exclude it at no loss of functionality, add the following snippet to the
 `android` block in your Gradle file for the application subproject:
-
-```kotlin
+```groovy
 packagingOptions {
     resources.excludes += "DebugProbesKt.bin"
 }
@@ -162,11 +177,10 @@ Core modules of `kotlinx.coroutines` are also available for
 [Kotlin/JS](https://kotlinlang.org/docs/reference/js-overview.html) and [Kotlin/Native](https://kotlinlang.org/docs/reference/native-overview.html).
 
 In common code that should get compiled for different platforms, you can add a dependency to `kotlinx-coroutines-core` right to the `commonMain` source set:
-
-```kotlin
+```groovy
 commonMain {
     dependencies {
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0-RC2")
     }
 }
 ```
@@ -178,7 +192,7 @@ Platform-specific dependencies are recommended to be used only for non-multiplat
 #### JS
 
 Kotlin/JS version of `kotlinx.coroutines` is published as 
-[`kotlinx-coroutines-core-js`](https://search.maven.org/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core-js/1.6.0/jar)
+[`kotlinx-coroutines-core-js`](https://search.maven.org/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core-js/1.6.0-RC2/jar)
 (follow the link to get the dependency declaration snippet) and as [`kotlinx-coroutines-core`](https://www.npmjs.com/package/kotlinx-coroutines-core) NPM package. 
 
 #### Native
