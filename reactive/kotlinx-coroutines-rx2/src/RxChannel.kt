@@ -80,7 +80,7 @@ private class SubscriptionChannel<T> :
 
 /** @suppress */
 @Deprecated(message = "Deprecated in the favour of Flow", level = DeprecationLevel.HIDDEN) // ERROR in 1.4.0, HIDDEN in 1.6.0
-public fun <T> ObservableSource<T>.openSubscription(): ReceiveChannel<T> {
+public fun <T: Any> ObservableSource<T>.openSubscription(): ReceiveChannel<T> {
     val channel = SubscriptionChannel<T>()
     subscribe(channel)
     return channel
@@ -88,7 +88,7 @@ public fun <T> ObservableSource<T>.openSubscription(): ReceiveChannel<T> {
 
 /** @suppress */
 @Deprecated(message = "Deprecated in the favour of Flow", level = DeprecationLevel.HIDDEN) // ERROR in 1.4.0, HIDDEN in 1.6.0
-public fun <T> MaybeSource<T>.openSubscription(): ReceiveChannel<T> {
+public fun <T: Any> MaybeSource<T>.openSubscription(): ReceiveChannel<T> {
     val channel = SubscriptionChannel<T>()
     subscribe(channel)
     return channel
