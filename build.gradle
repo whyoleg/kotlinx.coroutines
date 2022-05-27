@@ -159,8 +159,6 @@ allprojects {
     }
 }
 
-// needs to be before evaluationDependsOn due to weird Gradle ordering
-apply plugin: "animalsniffer-conventions"
 
 // Add dependency to core source sets. Core is configured in kx-core/build.gradle
 configure(subprojects.findAll { !sourceless.contains(it.name) && it.name != coreModule }) {
@@ -335,7 +333,6 @@ def publishTasks = getTasksByName("publish", true) + getTasksByName("publishNpm"
 
 task deploy(dependsOn: publishTasks)
 
-apply plugin: 'animalsniffer-convention'
 
 clean.dependsOn gradle.includedBuilds.collect { it.task(':clean') }
 
