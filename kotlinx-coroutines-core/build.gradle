@@ -271,6 +271,7 @@ tasks.jvmLincheckTest {
     kover {
         enabled = false // Always disabled, lincheck doesn't really support coverage
     }
+    jvmArgs '-XX:+HeapDumpOnOutOfMemoryError'
 }
 
 def commonKoverExcludes =
