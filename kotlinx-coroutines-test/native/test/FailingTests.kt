@@ -11,6 +11,7 @@ import kotlin.test.*
  * everything is better now. */
 class FailingTests {
     @Test
+    @Ignore
     fun testRunTestLoopShutdownOnTimeout() = testResultMap({ fn ->
         assertFailsWith<IllegalStateException> { fn() }
     }) {
