@@ -15,20 +15,12 @@ repositories {
     mavenCentral()
     if (cacheRedirectorEnabled) {
         maven("https://cache-redirector.jetbrains.com/plugins.gradle.org/m2")
-        maven("https://cache-redirector.jetbrains.com/maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
     } else {
         maven("https://plugins.gradle.org/m2")
-        maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
     }
-
+    maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
     maven("https://maven.pkg.jetbrains.space/kotlin/p/dokka/dev")
 
-    fun getSensitiveProperty(name: String) = project.findProperty(name) as? String ?: System.getenv(name)
-
-    maven("https://maven.pkg.jetbrains.space/public/p/kotlinx-atomicfu/maven").credentials {
-        username = getSensitiveProperty("spaceUsername")
-        password = getSensitiveProperty("spacePassword")
-    }
     if (buildSnapshotTrain) {
         mavenLocal()
     }
@@ -69,4 +61,9 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
     implementation("ru.vyarus:gradle-animalsniffer-plugin:1.5.3") // Android API check
+    implementation("org.jetbrains.kotlinx:kover:${version("kover")}") {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 }
