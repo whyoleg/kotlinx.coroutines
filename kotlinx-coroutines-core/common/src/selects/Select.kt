@@ -705,7 +705,7 @@ internal open class SelectImplementation<R> constructor(
         // Update the state.
         state.update { cur ->
             // Finish immediately when this `select` is already completed.
-            if (cur is ClauseData<*> || cur == STATE_COMPLETED) return
+            if (cur == STATE_COMPLETED) return
             STATE_CANCELLED
         }
         // Read the list of clauses. If the `clauses` field is already `null`,

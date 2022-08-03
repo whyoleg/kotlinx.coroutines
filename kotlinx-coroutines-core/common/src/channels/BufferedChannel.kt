@@ -12,7 +12,6 @@ import kotlin.coroutines.*
 import kotlin.js.*
 import kotlin.jvm.*
 import kotlin.math.*
-import kotlin.native.concurrent.*
 import kotlin.random.*
 import kotlin.reflect.*
 
@@ -1236,7 +1235,6 @@ internal open class BufferedChannel<E>(
             segm = segm.next ?: break
         }
         while (true) {
-            val segmPrev = segm.prev
             for (i in SEGMENT_SIZE - 1 downTo 0) {
                 if (segm.id * SEGMENT_SIZE + i < receivers.value) return
                 while (true) {
@@ -1256,12 +1254,18 @@ internal open class BufferedChannel<E>(
                         }
                         state is Waiter -> {
                             if (segm.casState(i, state, CHANNEL_CLOSED)) {
+//                                if (onUndeliveredElement != null) {
+//                                    undeliveredElementException = onUndeliveredElement.callUndeliveredElementCatchingException(segm.retrieveElement(i), undeliveredElementException)
+//                                }
                                 state.closeSender()
                                 break
                             }
                         }
                         state is WaiterEB -> {
                             if (segm.casState(i, state, CHANNEL_CLOSED)) {
+//                                if (onUndeliveredElement != null) {
+//                                    undeliveredElementException = onUndeliveredElement.callUndeliveredElementCatchingException(segm.retrieveElement(i), undeliveredElementException)
+//                                }
                                 state.waiter.closeSender()
                                 break
                             }
@@ -1270,7 +1274,7 @@ internal open class BufferedChannel<E>(
                     }
                 }
             }
-            segm = segmPrev ?: break
+            segm = segm.prev ?: break
         }
         undeliveredElementException?.let { throw it } // throw UndeliveredElementException at the end if there was one
     }
@@ -1306,7 +1310,7 @@ internal open class BufferedChannel<E>(
         }
     }
 
-    private fun Any.closeReceiver() = closeWaiter(receiver = true)
+    private fun Waiter.closeReceiver() = closeWaiter(receiver = true)
     private fun Any.closeSender() = closeWaiter(receiver = false)
 
     private fun Any.closeWaiter(receiver: Boolean): Boolean {
@@ -1757,7 +1761,8 @@ internal class ChannelSegment<E>(id: Long, prev: ChannelSegment<E>?, pointers: I
             val update = when {
                 cur is Waiter -> INTERRUPTED
                 cur is WaiterEB -> INTERRUPTED_EB
-                cur === S_RESUMING_EB || cur === S_RESUMING_RCV -> continue
+                cur === S_RESUMING_EB -> continue
+                cur === S_RESUMING_RCV -> continue
                 cur === INTERRUPTED_SEND -> INTERRUPTED_SEND
                 cur === DONE || cur === BUFFERED || cur === CHANNEL_CLOSED -> return
                 else -> error("unexpected: $cur")
@@ -1773,7 +1778,6 @@ internal class ChannelSegment<E>(id: Long, prev: ChannelSegment<E>?, pointers: I
     }
 }
 private fun <E> createSegment(id: Long, prev: ChannelSegment<E>?) = ChannelSegment(id, prev, 0)
-@SharedImmutable
 private val NULL_SEGMENT = createSegment<Any?>(-1, null)
 /**
  * Number of cells in each segment.
@@ -1816,41 +1820,33 @@ private fun initialBufferEnd(capacity: Int): Long = when (capacity) {
  */
 
 // The cell stores a buffered element.
-@SharedImmutable
 private val BUFFERED = Symbol("BUFFERED")
 // Concurrent `expandBuffer(..)` can inform the
 // upcoming sender that it should buffer the element.
-@SharedImmutable
 private val IN_BUFFER = Symbol("SHOULD_BUFFER")
 // Indicates that a receiver (R suffix) is resuming
 // the suspended sender; after that, it should update
 // the state to either `DONE` (on success) or
 // `INTERRUPTED_R` (on failure).
-@SharedImmutable
 private val S_RESUMING_RCV = Symbol("RESUMING_R")
 // Indicates that `expandBuffer(..)` is resuming the
 // suspended sender; after that, it should update the
 // state to either `BUFFERED` (on success) or
 // `INTERRUPTED_EB` (on failure).
-@SharedImmutable
 private val S_RESUMING_EB = Symbol("RESUMING_EB")
 // When a receiver comes to the cell already covered by
 // a sender (according to the counters), but the cell
 // is still in `EMPTY` or `IN_BUFFER` state, it poisons
 // the cell by changing its state to `POISONED`.
-@SharedImmutable
 private val POISONED = Symbol("POISONED")
 // When the element is successfully transferred (possibly,
 // through buffering), the cell moves to `DONE` state.
-@SharedImmutable
 private val DONE = Symbol("DONE")
 // When the waiter is cancelled, it moves the cell to
 // `INTERRUPTED` state; thus, informing other parties
 // that may come to the cell and avoiding memory leaks.
-@SharedImmutable
 private val INTERRUPTED = Symbol("INTERRUPTED")
 // TODO
-@SharedImmutable
 private val INTERRUPTED_SEND = Symbol("INTERRUPTED_SEND")
 // When the cell is already covered by both sender and
 // receiver (`sender` and `receivers` counters are greater
@@ -1872,11 +1868,9 @@ private class WaiterEB(@JvmField val waiter: Waiter) {
 // receiver that it should complete the `expandBuffer(..)`
 // procedure if the cancelled waiter stored in the cell
 // was sender.
-@SharedImmutable
 private val INTERRUPTED_EB = Symbol("INTERRUPTED_EB")
 // Indicates that the channel is already closed,
 // and no more operation should not touch this cell.
-@SharedImmutable
 internal val CHANNEL_CLOSED = Symbol("CHANNEL_CLOSED")
 
 
@@ -1895,11 +1889,8 @@ private class ReceiveCatching<E>(
   buffered element retrieval, the corresponding element
   is returned as result of [BufferedChannel.updateCellReceive].
  */
-@SharedImmutable
 private val SUSPEND = Symbol("SUSPEND")
-@SharedImmutable
 private val SUSPEND_NO_WAITER = Symbol("SUSPEND_NO_WAITER")
-@SharedImmutable
 private val FAILED = Symbol("FAILED")
 
 /*
@@ -1915,7 +1906,6 @@ private const val RESULT_FAILED = 4
  * Special value for [BufferedChannel.BufferedChannelIterator.receiveResult]
  * that indicates the absence of pre-received result.
  */
-@SharedImmutable
 private val NO_RECEIVE_RESULT = Symbol("NO_RECEIVE_RESULT")
 
 
@@ -1962,9 +1952,7 @@ private inline fun constructSendersAndCloseStatus(counter: Long, closeStatus: In
        +------------>| CLOSED |
            close     +--------+
  */
-@SharedImmutable
 private val CLOSE_HANDLER_CLOSED = Symbol("CLOSE_HANDLER_CLOSED")
-@SharedImmutable
 private val CLOSE_HANDLER_INVOKED = Symbol("CLOSE_HANDLER_INVOKED")
 
 /**
@@ -1972,7 +1960,6 @@ private val CLOSE_HANDLER_INVOKED = Symbol("CLOSE_HANDLER_INVOKED")
  * When the channel is closed or cancelled without exception, this [NO_CLOSE_CAUSE]
  * marker should be replaced with `null`.
  */
-@SharedImmutable
 private val NO_CLOSE_CAUSE = Symbol("NO_CLOSE_CAUSE")
 
 /**
@@ -1980,5 +1967,4 @@ private val NO_CLOSE_CAUSE = Symbol("NO_CLOSE_CAUSE")
  * [BufferedChannel.BufferedChannelIterator], should be marked with this interface
  * to make the code faster and easier to read.
  */
-@InternalCoroutinesApi
 internal interface Waiter
