@@ -238,7 +238,7 @@ public sealed interface SelectInstance<in R> {
      */
     public fun selectInRegistrationPhase(internalResult: Any?)
 }
-internal interface SelectInstanceInternal<R>: SelectInstance<R>
+internal interface SelectInstanceInternal<R>: SelectInstance<R>, Waiter
 
 @PublishedApi
 internal open class SelectImplementation<R> constructor(
