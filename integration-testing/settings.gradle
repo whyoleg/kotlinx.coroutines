@@ -1,9 +1,5 @@
 pluginManagement {
-    val build_snapshot_train: String ? by settings
     repositories {
-        if (build_snapshot_train?.toBoolean() == true) {
-            mavenLocal()
-        }
         mavenCentral()
         maven { url "https://plugins.gradle.org/m2/" }
         mavenLocal()
