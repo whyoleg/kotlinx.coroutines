@@ -5,7 +5,6 @@ plugins {
 
 repositories {
     // Coroutines from the outer project are published by previous CI buils step
-    maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev")
     mavenLocal()
     mavenCentral()
 }
