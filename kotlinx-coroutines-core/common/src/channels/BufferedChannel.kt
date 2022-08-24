@@ -35,7 +35,7 @@ internal open class BufferedChannel<E>(
      * Channel capacity, `0` for rendezvous channel
      * and `Channel.UNLIMITED` for unlimited capacity.
      */
-    capacity: Int,
+    private val capacity: Int,
     @JvmField
     protected val onUndeliveredElement: OnUndeliveredElement<E>? = null
 ) : Channel<E> {
@@ -68,6 +68,7 @@ internal open class BufferedChannel<E>(
 
     init {
         val s = ChannelSegment<E>(0, null, 3)
+        s.channel = this
         sendSegment = atomic(s)
         receiveSegment = atomic(s)
         @Suppress("UNCHECKED_CAST")
@@ -177,7 +178,7 @@ internal open class BufferedChannel<E>(
             // and this `trySend(e)` fails. According to the contract,
             // we do not need to call [onUndeliveredElement] handler as
             // in the plain `send(e)` operation.
-            onSuspend = { _, _ -> failure() },
+            onSuspend = { segm, _ -> segm.onSlotCleaned(); failure() },
             // When the channel is closed, return the corresponding result.
             onClosed = { onClosedTrySend() }
         )
@@ -286,16 +287,21 @@ internal open class BufferedChannel<E>(
                     // specified waiter. If the channel is already closed,
                     // and the `INTERRUPTED` token has been stored as a waiter,
                     // this request finishes with the `onClosed()` action.
+                    segment.onSlotCleaned()
                     if (closed) return onClosed()
                     return onSuspend(segment, i)
                 }
-                RESULT_FAILED -> {
-                    // The current cell processing has failed
-                    // (either the cell is poisoned, the stored waiter
-                    // is cancelled, or the channel is already closed).
+                RESULT_CLOSED -> {
+//                    if (s < receiversCounter) segment.cleanPrev()
+                    isClosedForSend
+                    return onClosed()
+                }
+                RESULT_POISONED -> {
                     segment.cleanPrev() // the previous segments are no longer needed.
-                    // If the channel is already closed, proceed correspondingly.
-                    if (closed) return onClosed()
+                    continue
+                }
+                RESULT_FAILED -> {
+                    segment.cleanPrev()
                     // Restart the operation from the beginning.
                     continue
                 }
@@ -343,8 +349,25 @@ internal open class BufferedChannel<E>(
             RESULT_SUSPEND -> {
                 onSuspend(segment, index)
             }
+            RESULT_CLOSED -> {
+                if (s < receiversCounter) segment.cleanPrev()
+                isClosedForSend
+                onClosed()
+            }
+            RESULT_POISONED -> {
+                segment.cleanPrev() // the previous segments are no longer needed.
+                // On failure, restart the operation from the beginning.
+                sendImpl(
+                    element = element,
+                    waiter = waiter,
+                    onRendezvousOrBuffered = onRendezvousOrBuffered,
+                    onSuspend = onSuspend,
+                    onClosed = onClosed,
+                )
+            }
             RESULT_FAILED -> {
                 segment.cleanPrev()
+                // Restart the operation from the beginning.
                 // On failure, restart the operation from the beginning.
                 sendImpl(
                     element = element,
@@ -418,10 +441,25 @@ internal open class BufferedChannel<E>(
                 // Fail if the cell is poisoned by a concurrent receiver,
                 // or the receiver stored in this cell was cancelled,
                 // or the channel is already closed.
-                state === POISONED || state === INTERRUPTED || state === INTERRUPTED_EB || state === CHANNEL_CLOSED -> {
+                state === INTERRUPTED -> {
+                    if (segment.casState(index, state, INTERRUPTED_RCV)) {
+                        segment.onSlotCleaned()
+                        return RESULT_FAILED
+                    }
+                }
+                state === INTERRUPTED_RCV -> return RESULT_FAILED
+                state === INTERRUPTED_EB -> {
                     // Clean the element slot to avoid memory leaks and finish.
                     segment.cleanElement(index)
+                    segment.setState(index, INTERRUPTED_RCV)
+                    segment.onSlotCleaned()
                     return RESULT_FAILED
+                }
+                state === POISONED -> return RESULT_POISONED
+                state === CHANNEL_CLOSED -> {
+                    // Clean the element slot to avoid memory leaks and finish.
+                    segment.cleanElement(index)
+                    return RESULT_CLOSED
                 }
                 // A waiting receiver is stored in the cell.
                 else -> {
@@ -434,11 +472,16 @@ internal open class BufferedChannel<E>(
                     val receiver = if (state is WaiterEB) state.waiter else state
                     // Try to make a rendezvous with the receiver.
                     return if (receiver.tryResumeReceiver(element)) {
-                        // Move the cell state to DONE.
-                        segment.setStateLazy(index, DONE)
+                        // Move the cell state to DONE_RCV.
+                        segment.setState(index, DONE_RCV)
                         onReceiveDequeued()
                         RESULT_RENDEZVOUS
-                    } else RESULT_FAILED
+                    } else {
+                        if (segment.casState(index, receiver, INTERRUPTED_RCV)) {
+                            segment.onSlotCleaned()
+                        }
+                        RESULT_FAILED
+                    }
                 }
             }
         }
@@ -654,9 +697,9 @@ internal open class BufferedChannel<E>(
         val s = sendersAndCloseStatusCur.counter
         if (r >= s) return failure()
         return receiveImpl(
-            waiter = INTERRUPTED,
+            waiter = INTERRUPTED_RCV,
             onRendezvous = { element -> success(element) },
-            onSuspend = { _, _ -> failure() },
+            onSuspend = { segm, _ -> segm.onSlotCleaned(); failure() },
             onClosed = { onClosedTryReceive() }
         )
     }
@@ -730,6 +773,7 @@ internal open class BufferedChannel<E>(
                     // but failed: either the opposite request has
                     // already been cancelled or the cell is poisoned.
                     // Restart from the beginning in this case.
+                    if (r < sendersCounter) segm.cleanPrev()
                     continue
                 }
                 updCellResult === SUSPEND_NO_WAITER -> {
@@ -778,6 +822,7 @@ internal open class BufferedChannel<E>(
                 return onSuspend(segment, i)
             }
             updCellResult === FAILED -> {
+                if (r < sendersCounter) segment.cleanPrev()
                 return receiveImpl(
                     waiter = waiter,
                     onRendezvous = onRendezvous,
@@ -857,7 +902,10 @@ internal open class BufferedChannel<E>(
                     return element
                 }
                 state === INTERRUPTED -> {
-                    if (segment.casState(i, state, INTERRUPTED_SEND)) return FAILED
+                    if (segment.casState(i, state, INTERRUPTED_SEND)) {
+                        segment.onSlotCleaned()
+                        return FAILED
+                    }
                 }
                 state === INTERRUPTED_EB -> {
                     expandBuffer()
@@ -872,11 +920,12 @@ internal open class BufferedChannel<E>(
                         val helpExpandBuffer = state is WaiterEB
                         val sender = if (state is WaiterEB) state.waiter else state
                         if (sender.tryResumeSender()) {
-                            segment.setState(i, DONE)
+                            segment.setState(i, DONE_RCV)
                             expandBuffer()
                             return segment.retrieveElement(i)
                         } else {
                             segment.setState(i, INTERRUPTED_SEND)
+                            segment.onSlotCleaned()
                             if (helpExpandBuffer) expandBuffer()
                             return FAILED
                         }
@@ -914,8 +963,15 @@ internal open class BufferedChannel<E>(
             if (s <= b) {
                 if (segment.id < id) {
                     while (true) {
-                        val ss = findSegmentBufferOrLast(id, segment)
-                        if (bufferEndSegment.moveForward(ss)) return
+                        // TODO what if stored into IN_BUFFER? How to deal with that? No fucking idea...
+                        var ss = findSegmentBufferOrLast(id, segment)
+                        if (bufferEndSegment.moveForward(ss)) {
+                            ss = findSegmentBufferOrLast(id, ss)
+                            if (ss.id != id) return
+                            val i = (b % SEGMENT_SIZE).toInt()
+                            if (ss.getState(i) === INTERRUPTED_RCV) ss.onSlotCleaned()
+                            return
+                        }
                     }
                 } // to avoid memory leaks
                 return
@@ -927,7 +983,7 @@ internal open class BufferedChannel<E>(
                 }
             }
             if (segment.id != id) {
-                if (receivers.value > b) return
+//                if (receivers.value > b) return
                 bufferEnd.compareAndSet(b + 1, segment.id * SEGMENT_SIZE)
                 continue@try_again
             }
@@ -957,15 +1013,19 @@ internal open class BufferedChannel<E>(
                 state === null -> {
                     if (segment.casState(i, state, IN_BUFFER)) return true
                 }
-                state === BUFFERED || state === POISONED || state === DONE || state === CHANNEL_CLOSED -> return true
+                state === BUFFERED || state === POISONED || state === DONE_RCV || state === CHANNEL_CLOSED -> return true
                 state === S_RESUMING_RCV -> continue // spin wait
                 state === INTERRUPTED -> {
                     if (b >= receivers.value) return false
                     if (segment.casState(i, state, INTERRUPTED_EB)) return true
                 }
                 state === INTERRUPTED_SEND -> return false
+                state === INTERRUPTED_RCV -> {
+                    if (b >= sendersCounter) segment.onSlotCleaned()
+                    return true
+                }
                 else -> {
-                    check(state is Waiter)
+                    check(state is Waiter) { "expected Waiter, but $state detected"}
                     if (b < receivers.value) {
                         if (segment.casState(i, state, WaiterEB(waiter = state))) return true
                     } else {
@@ -975,6 +1035,7 @@ internal open class BufferedChannel<E>(
                                 true
                             } else {
                                 segment.setState(i, INTERRUPTED_SEND)
+                                segment.onSlotCleaned()
                                 false
                             }
                         }
@@ -1237,7 +1298,7 @@ internal open class BufferedChannel<E>(
         while (true) {
             for (i in SEGMENT_SIZE - 1 downTo 0) {
                 if (segm.id * SEGMENT_SIZE + i < receivers.value) return
-                while (true) {
+                update_cell@while (true) {
                     val state = segm.getState(i)
                     when {
                         state === BUFFERED -> if (segm.casState(i, state, CHANNEL_CLOSED)) {
@@ -1245,12 +1306,12 @@ internal open class BufferedChannel<E>(
                             if (onUndeliveredElement != null) {
                                 undeliveredElementException = onUndeliveredElement.callUndeliveredElementCatchingException(segm.retrieveElement(i), undeliveredElementException)
                             }
-                            segm.onCancellation(i)
-                            break
+//                            segm.onCancellation(i)
+                            break@update_cell
                         }
                         state === IN_BUFFER || state === null -> if (segm.casState(i, state, CHANNEL_CLOSED)) {
-                            segm.onCancellation(i)
-                            break
+//                            segm.onCancellation(i)
+                            break@update_cell
                         }
                         state is Waiter -> {
                             if (segm.casState(i, state, CHANNEL_CLOSED)) {
@@ -1258,7 +1319,7 @@ internal open class BufferedChannel<E>(
 //                                    undeliveredElementException = onUndeliveredElement.callUndeliveredElementCatchingException(segm.retrieveElement(i), undeliveredElementException)
 //                                }
                                 state.closeSender()
-                                break
+                                break@update_cell
                             }
                         }
                         state is WaiterEB -> {
@@ -1267,15 +1328,17 @@ internal open class BufferedChannel<E>(
 //                                    undeliveredElementException = onUndeliveredElement.callUndeliveredElementCatchingException(segm.retrieveElement(i), undeliveredElementException)
 //                                }
                                 state.waiter.closeSender()
-                                break
+                                break@update_cell
                             }
                         }
-                        else -> break
+                        else -> break@update_cell
                     }
                 }
             }
             segm = segm.prev ?: break
         }
+        val rcvSegment = receiveSegment.value
+        if (segm.id > rcvSegment.id) error("WTF is going on??!!")
         undeliveredElementException?.let { throw it } // throw UndeliveredElementException at the end if there was one
     }
 
@@ -1289,16 +1352,19 @@ internal open class BufferedChannel<E>(
                     when {
                         state === null || state === IN_BUFFER -> {
                             if (segm.casState(i, state, CHANNEL_CLOSED)) break@cell
+                            segm.onSlotCleaned()
                         }
                         state is WaiterEB -> {
                             if (segm.casState(i, state, CHANNEL_CLOSED)) {
                                 if (state.waiter.closeReceiver()) expandBuffer()
+                                segm.onSlotCleaned()
                                 break@cell
                             }
                         }
                         state is Waiter -> {
                             if (segm.casState(i, state, CHANNEL_CLOSED)) {
                                 if (state.closeReceiver()) expandBuffer()
+                                segm.onSlotCleaned()
                                 break@cell
                             }
                         }
@@ -1600,7 +1666,7 @@ internal open class BufferedChannel<E>(
                 state === INTERRUPTED_EB -> return true
                 state === INTERRUPTED_SEND -> return true
                 state === CHANNEL_CLOSED -> return true
-                state === DONE -> return true
+                state === DONE_RCV -> return true
                 state === POISONED -> return true
                 state === S_RESUMING_EB || state === S_RESUMING_RCV -> continue // spin-wait
                 else -> return receivers.value != r
@@ -1667,6 +1733,7 @@ internal open class BufferedChannel<E>(
     // ##################
 
     internal val receiversCounter: Long get() = receivers.value
+    internal val bufferEndCounter: Long get() = bufferEnd.value
     internal val sendersCounter: Long get() = sendersAndCloseStatus.value.counter
 
     // Returns a debug representation of this channel,
@@ -1684,6 +1751,7 @@ internal open class BufferedChannel<E>(
                     is SelectInstance<*> -> "select"
                     is ReceiveCatching<*> -> "receiveCatching"
                     is SendBroadcast -> "send(broadcast)"
+                    is WaiterEB -> "EB($w)"
                     else -> w.toString()
                 }
                 val eString = e.toString()
@@ -1699,7 +1767,66 @@ internal open class BufferedChannel<E>(
         while (data.isNotEmpty() && data.last() == "(null,null)") data.removeLast()
         return "S=${sendersAndCloseStatus.value.counter},R=${receivers.value},B=${bufferEnd.value}," +
                "C=${sendersAndCloseStatus.value.closeStatus},data=${data},dataStartIndex=$dataStartIndex," +
-               "S_SegmId=${sendSegment.value.id},R_SegmId=${receiveSegment.value.id},B_SegmId=${bufferEndSegment.value?.id}"
+               "S_SegmId=${sendSegment.value.id},R_SegmId=${receiveSegment.value.id},B_SegmId=${bufferEndSegment.value.id}"
+    }
+
+    fun validateSegmentStructure() {
+        if (rendezvousOrUnlimited) check(bufferEndSegment.value === NULL_SEGMENT) {
+            "bufferEndSegment must be NULL_SEGMENT for rendezvous and unlimited channels; they do not manipulate it"
+        } else {
+            check(receiveSegment.value.id <= bufferEndSegment.value.id) {
+                "bufferEndSegment should not have lower id than receiveSegment"
+            }
+        }
+        val firstSegment = if (receiveSegment.value.id < sendSegment.value.id) receiveSegment.value else sendSegment.value
+        check(firstSegment.prev == null) {
+            "All processed segments should be unreachable from the data structure, but the `prev` link of the leftmost segment is non-null"
+        }
+        var segment = firstSegment
+        while (segment.next != null) {
+            check(segment.next!!.prev !== null) {
+                "`segm.next.prev` is null"
+            }
+            check(segment.next!!.prev === segment) {
+                "The `segm.next.prev === segm` invariant is violated"
+            }
+            var interruptedOrClosed = 0
+            for (i in 0 until SEGMENT_SIZE) {
+                val state = segment.getState(i)
+                when (segment.getState(i)) {
+                    BUFFERED -> {
+                        // TODO
+                    }
+                    is Waiter -> {
+                        // TODO
+                    }
+                    INTERRUPTED -> {
+                        check(segment === sendSegment.value || segment === receiveSegment.value) {
+                            "TODO" // TODO
+                        }
+                    }
+                    INTERRUPTED_RCV, INTERRUPTED_SEND, CHANNEL_CLOSED -> {
+                        interruptedOrClosed++
+                    }
+                    is WaiterEB -> error("The cell state is WaiterEB, which is a special state to solve when race when " +
+                        "the cell processing by expandBuffer() is covered by both send(e) and receive(); " +
+                        "this state must be updated when both send(e) and receive() complete.")
+                    INTERRUPTED_EB -> error("The cell state is INTERRUPTED_EB, which is a special state to solve when race when " +
+                        "the cell processing by expandBuffer() is covered by both send(e) and receive(); " +
+                        "this state must be updated when both send(e) and receive() complete.")
+                    S_RESUMING_EB, S_RESUMING_RCV -> error("") // TODO
+                    IN_BUFFER -> error("") // TODO
+                    POISONED, DONE_RCV -> {} // it's OK
+                    else -> error("Unexpected segment cell state: $state")
+                }
+            }
+            if (interruptedOrClosed == SEGMENT_SIZE) {
+//                check(segment === receiveSegment.value || segment === sendSegment.value || segment === bufferEndSegment.value) {
+//                    "logically removed segment is accessible" // TODO
+//                }
+            }
+            segment = segment.next!!
+        }
     }
 }
 
@@ -1710,6 +1837,7 @@ internal open class BufferedChannel<E>(
  * and [BufferedChannel.bufferEndSegment] correctly.
  */
 internal class ChannelSegment<E>(id: Long, prev: ChannelSegment<E>?, pointers: Int) : Segment<ChannelSegment<E>>(id, prev, pointers) {
+    lateinit var channel: BufferedChannel<E>
     private val data = atomicArrayOfNulls<Any?>(SEGMENT_SIZE * 2) // 2 registers per slot: state + element
     override val numberOfSlots: Int get() = SEGMENT_SIZE
 
@@ -1756,15 +1884,22 @@ internal class ChannelSegment<E>(id: Long, prev: ChannelSegment<E>?, pointers: I
 
     fun onCancellation(index: Int, onUndeliveredElement: OnUndeliveredElement<E>? = null, context: CoroutineContext? = null) {
         // Update the cell state first.
+        var cur: Any?
+        var update: Any?
+        val i = id * SEGMENT_SIZE + index
+        val s = channel.sendersCounter
+        val b = channel.bufferEndCounter
+        val r = channel.receiversCounter
         while (true) {
-            val cur = data[index * 2 + 1].value
-            val update = when {
-                cur is Waiter -> INTERRUPTED
+            cur = data[index * 2 + 1].value
+            update = when {
+                cur is Waiter -> if (i < s && i >= r) INTERRUPTED_SEND else if (i < r && i >= s) INTERRUPTED_RCV else INTERRUPTED
                 cur is WaiterEB -> INTERRUPTED_EB
                 cur === S_RESUMING_EB -> continue
                 cur === S_RESUMING_RCV -> continue
                 cur === INTERRUPTED_SEND -> INTERRUPTED_SEND
-                cur === DONE || cur === BUFFERED || cur === CHANNEL_CLOSED -> return
+                cur === INTERRUPTED_RCV -> INTERRUPTED_RCV
+                cur === DONE_RCV || cur === BUFFERED || cur === CHANNEL_CLOSED -> return
                 else -> error("unexpected: $cur")
             }
             if (data[index * 2 + 1].compareAndSet(cur, update)) break
@@ -1774,15 +1909,20 @@ internal class ChannelSegment<E>(id: Long, prev: ChannelSegment<E>?, pointers: I
         // Clean the element slot.
         cleanElement(index)
         // Inform the segment that one more slot has been cleaned.
-        onSlotCleaned()
+        if (update == INTERRUPTED_SEND) onSlotCleaned()
     }
 }
 private fun <E> createSegment(id: Long, prev: ChannelSegment<E>?) = ChannelSegment(id, prev, 0)
+    .also {
+        if (prev != null) {
+            it.channel = prev.channel
+        }
+    }
 private val NULL_SEGMENT = createSegment<Any?>(-1, null)
 /**
  * Number of cells in each segment.
  */
-private val SEGMENT_SIZE = systemProp("kotlinx.coroutines.bufferedChannel.segmentSize", 32)
+private val SEGMENT_SIZE = systemProp("kotlinx.coroutines.bufferedChannel.segmentSize2", 1)
 
 /**
  * Tries to resume this continuation with the specified
@@ -1841,7 +1981,7 @@ private val S_RESUMING_EB = Symbol("RESUMING_EB")
 private val POISONED = Symbol("POISONED")
 // When the element is successfully transferred (possibly,
 // through buffering), the cell moves to `DONE` state.
-private val DONE = Symbol("DONE")
+private val DONE_RCV = Symbol("DONE_RCV")
 // When the waiter is cancelled, it moves the cell to
 // `INTERRUPTED` state; thus, informing other parties
 // that may come to the cell and avoiding memory leaks.
@@ -1869,6 +2009,7 @@ private class WaiterEB(@JvmField val waiter: Waiter) {
 // procedure if the cancelled waiter stored in the cell
 // was sender.
 private val INTERRUPTED_EB = Symbol("INTERRUPTED_EB")
+private val INTERRUPTED_RCV = Symbol("INTERRUPTED_RCV")
 // Indicates that the channel is already closed,
 // and no more operation should not touch this cell.
 internal val CHANNEL_CLOSED = Symbol("CHANNEL_CLOSED")
@@ -1900,7 +2041,9 @@ private const val RESULT_RENDEZVOUS = 0
 private const val RESULT_BUFFERED = 1
 private const val RESULT_SUSPEND = 2
 private const val RESULT_SUSPEND_NO_WAITER = 3
-private const val RESULT_FAILED = 4
+private const val RESULT_CLOSED = 4
+private const val RESULT_FAILED = 5
+private const val RESULT_POISONED = 6
 
 /**
  * Special value for [BufferedChannel.BufferedChannelIterator.receiveResult]
