@@ -85,7 +85,7 @@ internal open class ConflatedBufferedChannel<E>(
         }
     }
 
-    override fun onReceiveSynchronizationCompletion() {
+    override fun onReceiveSynchronizationCompleted() {
         // Release the lock once the receive synchronization is done.
         lock.unlock()
     }
@@ -95,8 +95,9 @@ internal open class ConflatedBufferedChannel<E>(
         val attempt = trySend(element)
         if (attempt.isClosed) {
             onUndeliveredElement?.callUndeliveredElement(element, coroutineContext)
-            throw sendException(attempt.exceptionOrNull())
+            throw sendException
         }
+        assert { attempt.isSuccess }
     }
 
     override fun trySend(element: E): ChannelResult<Unit> = lock.withLock { // guard the operation by lock

@@ -206,7 +206,7 @@ internal open class BroadcastChannelImpl<E>(
     override suspend fun send(element: E) {
         val subs = lock.withLock { // protected by lock
             // Is this channel closed for send?
-            if (isClosedForSend) throw sendException(getCloseCause())
+            if (isClosedForSend) throw sendException
             // Update the last sent element if this broadcast is conflated.
             if (capacity == CONFLATED) lastConflatedElement = element
             // Get a copy of subscriber list. Unfortunately,
@@ -226,7 +226,7 @@ internal open class BroadcastChannelImpl<E>(
             val success = it.sendBroadcast(element)
             // The sending attempt has failed.
             // Check whether the broadcast is closed.
-            if (!success && isClosedForSend) throw sendException(getCloseCause())
+            if (!success && isClosedForSend) throw sendException
         }
     }
 
