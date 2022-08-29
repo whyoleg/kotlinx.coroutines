@@ -4,7 +4,9 @@
 
 package kotlinx.coroutines
 
+import kotlinx.atomicfu.*
 import kotlinx.coroutines.channels.*
+import kotlinx.coroutines.internal.*
 import kotlin.coroutines.*
 import kotlin.native.concurrent.*
 
@@ -63,28 +65,62 @@ internal class WorkerDispatcher(name: String) : CloseableCoroutineDispatcher(), 
     }
 }
 
-private class MultiWorkerDispatcher(name: String, workersCount: Int) : CloseableCoroutineDispatcher() {
-    private val tasksQueue = Channel<Runnable>(Channel.UNLIMITED)
-    private val workers = Array(workersCount) { Worker.start(name = "$name-$it") }
+public class MultiWorkerDispatcher(
+    private val name: String, private val workersCount: Int
+) : CloseableCoroutineDispatcher() {
+    private val runningWorkers = atomic(0)
+    private val queue = DispatcherQueue()
+    private val workers = atomicArrayOfNulls<Worker>(workersCount)
+    private val isTerminated = atomic(false)
 
-    init {
-        workers.forEach { w -> w.executeAfter(0L) { workerRunLoop() } }
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        if (runningWorkers.value != workersCount) {
+            tryAddWorker()
+        }
+        queue.put(block)
     }
 
-    private fun workerRunLoop() = runBlocking {
-        for (task in tasksQueue) {
-            // TODO error handling
-            task.run()
+    private fun tryAddWorker() {
+        runningWorkers.loop {
+            if (it == workersCount) return
+            if (runningWorkers.compareAndSet(it, it + 1)) {
+                addWorker(it)
+                return
+            }
         }
     }
 
-    override fun dispatch(context: CoroutineContext, block: Runnable) {
-        // TODO handle rejections
-        tasksQueue.trySend(block)
+    private fun addWorker(sequenceNumber: Int) {
+        val worker = Worker.start(name = "$name-#$sequenceNumber")
+        workers[sequenceNumber].value = worker
+        worker.executeAfter(0L) {
+            workerLoop()
+        }
+    }
+
+    private fun workerLoop() {
+        while (!isTerminated.value) {
+            val runnable = queue.take()
+            runnable.run()
+        }
     }
 
     override fun close() {
-        tasksQueue.close()
-        workers.forEach { it.requestTermination().result }
+        // TODO it races with worker creation
+        if (!isTerminated.compareAndSet(false, true)) return
+        repeat(workersCount) {
+            queue.put(Runnable {}) // Empty poison pill to wakeup workers and make them check isTerminated
+        }
+
+        val requests = ArrayList<Future<Unit>>()
+        for (i in 0 until workers.size) {
+            val worker = workers[i].value ?: continue
+            requests += worker.requestTermination(false)
+        }
+        for (request in requests) {
+            request.result // Wait for workers termination
+        }
+
+//        queue.close()
     }
 }

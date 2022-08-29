@@ -10,6 +10,7 @@ pluginManagement {
             maven("https://cache-redirector.jetbrains.com/plugins.gradle.org/m2")
         } else {
             maven("https://plugins.gradle.org/m2")
+            mavenLocal()
         }
         if (build_snapshot_train?.toBoolean() == true) {
             mavenLocal()
