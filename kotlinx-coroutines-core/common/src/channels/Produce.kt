@@ -123,9 +123,10 @@ internal fun <E> CoroutineScope.produce(
     onBufferOverflow: BufferOverflow = BufferOverflow.SUSPEND,
     start: CoroutineStart = CoroutineStart.DEFAULT,
     onCompletion: CompletionHandler? = null,
-    @BuilderInference block: suspend ProducerScope<E>.() -> Unit
+    @BuilderInference block: suspend ProducerScope<E>.() -> Unit,
+    onUndeliveredElement: ((E) -> Unit)? = null
 ): ReceiveChannel<E> {
-    val channel = Channel<E>(capacity, onBufferOverflow)
+    val channel = Channel<E>(capacity, onBufferOverflow, onUndeliveredElement)
     val newContext = newCoroutineContext(context)
     val coroutine = ProducerCoroutine(newContext, channel)
     if (onCompletion != null) coroutine.invokeOnCompletion(handler = onCompletion)

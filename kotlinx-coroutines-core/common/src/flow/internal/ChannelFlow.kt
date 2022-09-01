@@ -115,8 +115,15 @@ public abstract class ChannelFlow<T>(
      * handlers, while the pipeline before does not, because it was cancelled during its dispatch.
      * Thus `onCompletion` and `finally` blocks won't be executed and it may lead to a different kinds of memory leaks.
      */
-    public open fun produceImpl(scope: CoroutineScope): ReceiveChannel<T> =
-        scope.produce(context, produceCapacity, onBufferOverflow, start = CoroutineStart.ATOMIC, block = collectToFun)
+    public open fun produceImpl(scope: CoroutineScope): ReceiveChannel<T> = scope.produce(
+        context,
+        produceCapacity,
+        onBufferOverflow,
+        start = CoroutineStart.ATOMIC,
+        block = collectToFun,
+        onUndeliveredElement = context.onElementDropAction()
+            ?: scope.coroutineContext.onElementDropAction() //TODO: seems not correct
+    )
 
     override suspend fun collect(collector: FlowCollector<T>): Unit =
         coroutineScope {
